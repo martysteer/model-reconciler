@@ -17,6 +17,7 @@ async def reconcile_query(
     query: ReconciliationQuery,
     profile: ProfileConfig,
     base_url: str,
+    api_key: str | None = None,
 ) -> list[ReconciliationCandidate]:
     """Build prompt, call LLM, parse JSON, return candidates."""
     if profile.use_dspy:
@@ -36,6 +37,7 @@ async def reconcile_query(
             messages=messages,
             temperature=profile.temperature,
             max_tokens=profile.max_tokens,
+            api_key=api_key,
         )
     except Exception:
         logger.exception(f"LLM call failed for profile '{profile.slug}'")

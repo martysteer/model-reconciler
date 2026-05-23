@@ -8,7 +8,8 @@ services:
       - ./profiles:/app/profiles:ro
       - ./src:/app/src
     environment:
-      - LLM_BASE_URL=http://host.docker.internal:8080/v1
+      - LLM_BASE_URL=http://host.docker.internal:8000/v1
+      - LLM_API_KEY=sk-omlx
       - PROFILES_DIR=/app/profiles
       - LOG_LEVEL=INFO
     command: ["uvicorn", "model_reconciler.main:app",

@@ -145,7 +145,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if uncached:
             coros = [
-                reconcile_query(q, profile, base_url)
+                reconcile_query(q, profile, base_url, settings.llm_api_key)
                 for q, _ in uncached.values()
             ]
             completed = await asyncio.gather(*coros)
@@ -170,7 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cache_key in cache:
             return [c.model_dump() for c in cache[cache_key]]
 
-        candidates = await reconcile_query(q, profile, base_url)
+        candidates = await reconcile_query(q, profile, base_url, settings.llm_api_key)
         cache[cache_key] = candidates
         return [c.model_dump() for c in candidates]
 

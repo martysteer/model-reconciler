@@ -12,6 +12,7 @@ async def chat_completion(
     messages: list[dict],
     temperature: float = 0.1,
     max_tokens: int = 800,
+    api_key: str | None = None,
 ) -> str:
     """POST to /chat/completions with JSON mode. Return content string.
 
@@ -20,6 +21,7 @@ async def chat_completion(
         messages: [{"role": "system", "content": "..."}, ...]
         temperature: Sampling temperature.
         max_tokens: Max tokens to generate.
+        api_key: Optional API key for authentication.
 
     Returns:
         Raw content string from the model's response.
@@ -29,10 +31,14 @@ async def chat_completion(
         httpx.ConnectError: If the inference engine is unreachable.
     """
     url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(
             url,
+            headers=headers,
             json={
                 "messages": messages,
                 "temperature": temperature,
