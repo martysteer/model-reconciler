@@ -1,0 +1,21 @@
+services:
+  api:
+    build: .
+    container_name: model-reconciler
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./profiles:/app/profiles:ro
+      - ./src:/app/src
+    environment:
+      - LLM_BASE_URL=http://host.docker.internal:8080/v1
+      - PROFILES_DIR=/app/profiles
+      - LOG_LEVEL=INFO
+    command: ["uvicorn", "model_reconciler.main:app",
+              "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
