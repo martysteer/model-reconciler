@@ -1,0 +1,5 @@
+name: "Test Profile"
+prompt: "Match queries. Return JSON array of matches."
+types:
+  - id: "test"
+    name: "Test Type"

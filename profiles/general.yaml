@@ -1,0 +1,11 @@
+name: "General Entity Reconciliation"
+
+prompt: |
+  Match the query to known entities. Return a JSON array of matches:
+  [{"id": "unique_id", "name": "Entity label", "score": 85, "description": "Why this matches"}]
+
+  Score: 95-100 exact, 80-94 strong, 60-79 related, below 60 weak.
+
+types:
+  - id: "entity"
+    name: "Entity"
