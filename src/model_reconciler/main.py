@@ -1,12 +1,16 @@
-"""Model Reconciler — W3C Reconciliation API."""
+"""Model Reconciler — W3C Reconciliation API with profile-based routing."""
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from cachetools import TTLCache
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from model_reconciler.config import Settings
+from model_reconciler.models import ProfileConfig, ServiceManifest
+from model_reconciler.profiles import load_all_profiles
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -14,12 +18,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings = Settings()
 
     logging.basicConfig(level=settings.log_level)
+    logger = logging.getLogger(__name__)
+
+    # Registry populated during lifespan startup
+    registry: dict[str, tuple[ProfileConfig, TTLCache]] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Startup: profile loading will go here in Task 3
+        profiles_dir = Path(settings.profiles_dir)
+        if profiles_dir.exists():
+            for profile in load_all_profiles(profiles_dir):
+                cache = TTLCache(maxsize=1000, ttl=profile.cache_ttl)
+                registry[profile.slug] = (profile, cache)
+                logger.info(f"Mounted /reconcile/{profile.slug} -> {profile.name}")
+        else:
+            logger.warning(f"Profiles directory not found: {profiles_dir}")
         yield
-        # Shutdown: nothing to clean up
+        registry.clear()
 
     application = FastAPI(
         title="Model Reconciler",
@@ -36,10 +51,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     application.state.settings = settings
+    application.state.registry = registry
+
+    def _get_profile(slug: str) -> tuple[ProfileConfig, TTLCache]:
+        if slug not in registry:
+            raise HTTPException(404, detail=f"Profile not found: {slug}")
+        return registry[slug]
+
+    @application.get("/")
+    async def list_services():
+        """List all loaded reconciliation services."""
+        return [
+            {
+                "slug": slug,
+                "name": profile.name,
+                "description": profile.description or profile.name,
+                "url": f"/reconcile/{slug}",
+            }
+            for slug, (profile, _) in registry.items()
+        ]
 
     @application.get("/health")
     async def health_check():
-        return {"status": "healthy"}
+        return {
+            "status": "healthy",
+            "profiles_loaded": len(registry),
+            "profiles": list(registry.keys()),
+        }
+
+    @application.get("/reconcile/{slug}")
+    async def get_manifest(slug: str):
+        """W3C Reconciliation Service manifest."""
+        profile, _ = _get_profile(slug)
+        return ServiceManifest(
+            name=profile.name,
+            identifierSpace=f"/entity/{slug}/",
+            schemaSpace=f"/schema/{slug}/",
+            defaultTypes=profile.types,
+        ).model_dump()
 
     return application
 
