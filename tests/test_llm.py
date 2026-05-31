@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from model_reconciler.llm import ProviderConfig, detect_provider
+from model_reconciler.llm import detect_provider
 
 
 def test_detect_local_localhost():
