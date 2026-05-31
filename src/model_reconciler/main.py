@@ -19,6 +19,7 @@ from model_reconciler.models import (
     ReconciliationQuery,
     ServiceManifest,
 )
+from model_reconciler.llm import detect_provider
 from model_reconciler.profiles import load_all_profiles
 from model_reconciler.reconcile import reconcile_query
 
@@ -33,12 +34,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry: dict[str, tuple[ProfileConfig, TTLCache]] = {}
     http_client: httpx.AsyncClient | None = None
     semaphore: asyncio.Semaphore | None = None
+    provider = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal http_client, semaphore
+        nonlocal http_client, semaphore, provider
         http_client = httpx.AsyncClient(timeout=60.0)
         semaphore = asyncio.Semaphore(settings.llm_concurrency)
+        provider = detect_provider(settings.llm_base_url)
+        logger.info(f"Provider detected: json_schema={provider.supports_json_schema}, "
+                    f"response_format={provider.supports_response_format}")
 
         profiles_dir = Path(settings.profiles_dir)
         if profiles_dir.exists():
@@ -155,7 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             coros = [
                 reconcile_query(
                     q, profile, base_url, settings.llm_api_key,
-                    client=http_client, semaphore=semaphore,
+                    client=http_client, semaphore=semaphore, provider=provider,
                 )
                 for q, _ in uncached.values()
             ]

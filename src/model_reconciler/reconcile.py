@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from model_reconciler.llm import chat_completion
+from model_reconciler.llm import ProviderConfig, chat_completion
 from model_reconciler.models import (
     ProfileConfig,
     ReconciliationCandidate,
@@ -14,6 +14,11 @@ from model_reconciler.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+SCHEMA_HINT_MESSAGE = {
+    "role": "system",
+    "content": 'Respond with JSON: {"matches": [{"name": "...", "score": N, "id": "...", "description": "..."}]}',
+}
 
 
 async def reconcile_query(
@@ -23,6 +28,7 @@ async def reconcile_query(
     api_key: str | None = None,
     client: httpx.AsyncClient | None = None,
     semaphore: asyncio.Semaphore | None = None,
+    provider: ProviderConfig | None = None,
 ) -> list[ReconciliationCandidate]:
     """Build prompt, call LLM, parse JSON, return candidates."""
     if profile.use_dspy:
@@ -31,10 +37,20 @@ async def reconcile_query(
             "support is not yet implemented. Set use_dspy: false."
         )
 
+    if provider is None:
+        provider = ProviderConfig()
+
+    use_schema = provider.supports_response_format and provider.supports_json_schema
+
     messages = [
         {"role": "system", "content": profile.prompt},
-        {"role": "user", "content": _format_user_message(query)},
     ]
+
+    # Add schema hint for json_object fallback mode
+    if not use_schema and provider.supports_response_format:
+        messages.append(SCHEMA_HINT_MESSAGE)
+
+    messages.append({"role": "user", "content": _format_user_message(query)})
 
     try:
         if semaphore:
@@ -46,6 +62,7 @@ async def reconcile_query(
                     temperature=profile.temperature,
                     max_tokens=profile.max_tokens,
                     api_key=api_key,
+                    provider=provider,
                 )
         else:
             raw = await chat_completion(
@@ -55,11 +72,14 @@ async def reconcile_query(
                 temperature=profile.temperature,
                 max_tokens=profile.max_tokens,
                 api_key=api_key,
+                provider=provider,
             )
     except Exception:
         logger.exception(f"LLM call failed for profile '{profile.slug}'")
         return []
 
+    if use_schema:
+        return parse_schema_response(raw)[: query.limit]
     return parse_llm_response(raw)[: query.limit]
 
 
@@ -115,13 +135,29 @@ def _extract_array(data) -> list[dict] | None:
     return None
 
 
+def parse_schema_response(text: str) -> list[ReconciliationCandidate]:
+    """Parse LLM response that conforms to RECONCILIATION_SCHEMA.
+
+    Expects: {"matches": [{"id": ..., "name": ..., "score": ..., "description": ...}]}
+    Handles null values for id and description.
+    Returns empty list on parse failure.
+    """
+    try:
+        data = json.loads(text.strip())
+        items = data["matches"]
+        return [_to_candidate(m, i) for i, m in enumerate(items)]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to parse schema response: {e}")
+        return []
+
+
 def _to_candidate(m: dict, index: int) -> ReconciliationCandidate:
     """Map a raw dict from the LLM into a typed ReconciliationCandidate."""
     score = float(m.get("score", 50))
     return ReconciliationCandidate(
-        id=m.get("id", f"gen_{index}"),
+        id=m.get("id") or f"gen_{index}",
         name=m.get("name", ""),
         score=score,
         match=score >= 90,
-        description=m.get("description") or m.get("reasoning", ""),
+        description=m.get("description") or m.get("reasoning") or "",
     )

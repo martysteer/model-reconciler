@@ -68,8 +68,9 @@ async def chat_completion(
     temperature: float = 0.1,
     max_tokens: int = 800,
     api_key: str | None = None,
+    provider: ProviderConfig | None = None,
 ) -> str:
-    """POST to /chat/completions with JSON mode. Return content string.
+    """POST to /chat/completions. Return content string.
 
     Args:
         client: Shared async HTTP client.
@@ -78,6 +79,7 @@ async def chat_completion(
         temperature: Sampling temperature.
         max_tokens: Max tokens to generate.
         api_key: Optional API key for authentication.
+        provider: Provider capabilities (controls response_format).
 
     Returns:
         Raw content string from the model's response.
@@ -86,21 +88,27 @@ async def chat_completion(
         httpx.HTTPStatusError: On non-2xx response.
         httpx.ConnectError: If the inference engine is unreachable.
     """
+    if provider is None:
+        provider = ProviderConfig()
+
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    r = await client.post(
-        url,
-        headers=headers,
-        json={
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
-        },
-    )
+    body: dict = {
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    if provider.supports_response_format:
+        if provider.supports_json_schema:
+            body["response_format"] = RECONCILIATION_SCHEMA
+        else:
+            body["response_format"] = {"type": "json_object"}
+
+    r = await client.post(url, headers=headers, json=body)
     r.raise_for_status()
 
     return r.json()["choices"][0]["message"]["content"]
