@@ -1,10 +1,64 @@
 """Async HTTP client for OpenAI-compatible chat completions."""
 
 import logging
+from dataclasses import dataclass
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ProviderConfig:
+    """Capabilities of the target inference engine."""
+
+    supports_json_schema: bool = True
+    supports_seed: bool = True
+    supports_response_format: bool = True
+
+
+def detect_provider(base_url: str) -> ProviderConfig:
+    """Auto-detect provider capabilities from URL patterns."""
+    url = base_url.lower()
+
+    if "generativelanguage.googleapis.com" in url:
+        return ProviderConfig(supports_json_schema=False, supports_seed=False)
+
+    if "huggingface" in url:
+        return ProviderConfig(supports_response_format=False)
+
+    # Local engines and generic hosted: full support
+    return ProviderConfig()
+
+
+RECONCILIATION_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "reconciliation_response",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "matches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": ["string", "null"]},
+                            "name": {"type": "string"},
+                            "score": {"type": "number"},
+                            "description": {"type": ["string", "null"]},
+                        },
+                        "required": ["id", "name", "score", "description"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["matches"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 async def chat_completion(
