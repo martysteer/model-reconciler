@@ -20,6 +20,7 @@ Build **model-reconciler**: a model-agnostic, profile-driven W3C Reconciliation 
 - **Profile-driven** — each YAML profile defines a prompt and entity types, mounting as its own `/reconcile/{slug}` endpoint
 - **Containerized** — the API runs in Docker; the inference engine runs natively on the host for GPU access
 - **OpenRefine-compatible** — implements the W3C Reconciliation Service API v0.2
+- **API key support** — optional `LLM_API_KEY` for authenticated inference endpoints
 
 ---
 
@@ -52,6 +53,7 @@ Modern LLMs reliably return valid JSON when requested via `response_format: {"ty
 | Profile system | YAML files, one per endpoint | No code changes to add reconciliation services |
 | Inference engine | External — user's choice | Not our concern; any OpenAI-compat server |
 | Deployment | API in Docker container; inference native on host | GPU access requires host process |
+| Authentication | Optional `LLM_API_KEY` env var | Bearer token for hosted/authenticated endpoints |
 | Caching | In-memory TTL per profile | Simple, no external dependencies |
 | W3C compliance | Core only (manifest + batch reconcile) | Extensible architecture for future additions |
 | Testing | Smoke tests (health, profiles, manifest) | No live model needed for CI |
@@ -193,14 +195,18 @@ async def chat_completion(
     messages: list[dict],
     temperature: float = 0.1,
     max_tokens: int = 800,
+    api_key: str | None = None,
 ) -> str:
     """Call OpenAI-compat endpoint. Return content string."""
     # POST {base_url}/chat/completions
+    # If api_key: set Authorization: Bearer header
     # Request JSON mode: response_format: {"type": "json_object"}
     # Return response.choices[0].message.content
 ```
 
 This function works with any server exposing the OpenAI `/v1/chat/completions` endpoint: llama-server, Ollama, omlx, vLLM, Docker Model Runner, LM Studio. The caller doesn't know or care which engine is behind the URL.
+
+When `api_key` is provided, the request includes an `Authorization: Bearer {api_key}` header. This supports hosted inference endpoints (OpenRouter, Together, etc.) alongside local engines that don't require auth.
 
 **Why not use the `openai` Python SDK?** httpx is already a dependency (used by FastAPI's test client), and the chat completions call is a single POST with a well-known JSON schema. Adding the `openai` package would be one more dependency for one HTTP call.
 
@@ -400,11 +406,12 @@ Production builds omit `--reload`, the `./src` volume mount, and dev dependencie
 
 ### Configuration
 
-Three environment variables. Nothing else.
+Four environment variables. Nothing else.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `LLM_BASE_URL` | `http://host.docker.internal:8080/v1` | Inference engine endpoint |
+| `LLM_API_KEY` | `None` | Optional Bearer token for authenticated endpoints |
 | `PROFILES_DIR` | `profiles` | Profile YAML directory |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
@@ -443,6 +450,7 @@ Where tests exercise code paths that would call the LLM, `llm.chat_completion` i
 ```
 fastapi
 uvicorn[standard]
+python-multipart
 httpx
 pyyaml
 pydantic
@@ -450,7 +458,7 @@ pydantic-settings
 cachetools
 ```
 
-Seven dependencies. FastAPI and uvicorn for the web server. httpx for the LLM client. pyyaml for profile loading. pydantic and pydantic-settings for data validation and config. cachetools for TTL caching.
+Eight dependencies. FastAPI and uvicorn for the web server. python-multipart for form data parsing. httpx for the LLM client. pyyaml for profile loading. pydantic and pydantic-settings for data validation and config. cachetools for TTL caching.
 
 ### requirements-dev.txt (testing)
 
