@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 from cachetools import TTLCache
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,9 +31,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger = logging.getLogger(__name__)
 
     registry: dict[str, tuple[ProfileConfig, TTLCache]] = {}
+    http_client: httpx.AsyncClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        nonlocal http_client
+        http_client = httpx.AsyncClient(timeout=60.0)
+
         profiles_dir = Path(settings.profiles_dir)
         if profiles_dir.exists():
             for profile in load_all_profiles(profiles_dir):
@@ -43,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning(f"Profiles directory not found: {profiles_dir}")
         yield
         registry.clear()
+        await http_client.aclose()
 
     application = FastAPI(
         title="Model Reconciler",
@@ -145,7 +151,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if uncached:
             coros = [
-                reconcile_query(q, profile, base_url, settings.llm_api_key)
+                reconcile_query(
+                    q, profile, base_url, settings.llm_api_key,
+                    client=http_client,
+                )
                 for q, _ in uncached.values()
             ]
             completed = await asyncio.gather(*coros)
@@ -170,7 +179,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cache_key in cache:
             return [c.model_dump() for c in cache[cache_key]]
 
-        candidates = await reconcile_query(q, profile, base_url, settings.llm_api_key)
+        candidates = await reconcile_query(
+            q, profile, base_url, settings.llm_api_key,
+            client=http_client,
+        )
         cache[cache_key] = candidates
         return [c.model_dump() for c in candidates]
 

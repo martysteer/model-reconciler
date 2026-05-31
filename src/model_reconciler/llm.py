@@ -62,6 +62,7 @@ RECONCILIATION_SCHEMA = {
 
 
 async def chat_completion(
+    client: httpx.AsyncClient,
     base_url: str,
     messages: list[dict],
     temperature: float = 0.1,
@@ -71,6 +72,7 @@ async def chat_completion(
     """POST to /chat/completions with JSON mode. Return content string.
 
     Args:
+        client: Shared async HTTP client.
         base_url: e.g. http://localhost:8080/v1
         messages: [{"role": "system", "content": "..."}, ...]
         temperature: Sampling temperature.
@@ -89,17 +91,16 @@ async def chat_completion(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(
-            url,
-            headers=headers,
-            json={
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        r.raise_for_status()
+    r = await client.post(
+        url,
+        headers=headers,
+        json={
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        },
+    )
+    r.raise_for_status()
 
     return r.json()["choices"][0]["message"]["content"]
