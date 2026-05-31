@@ -125,12 +125,12 @@ RECONCILIATION_SCHEMA = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": {"type": "string"},
+                            "id": {"type": ["string", "null"]},
                             "name": {"type": "string"},
                             "score": {"type": "number"},
-                            "description": {"type": "string"},
+                            "description": {"type": ["string", "null"]},
                         },
-                        "required": ["name", "score"],
+                        "required": ["id", "name", "score", "description"],
                         "additionalProperties": False,
                     },
                 }
@@ -142,7 +142,7 @@ RECONCILIATION_SCHEMA = {
 }
 ```
 
-**Only `name` and `score` required** from the LLM. `id` defaults to `gen_N`, `description` defaults to empty. Same defaults as current `_to_candidate()`.
+**All 4 fields required in schema** (strict mode demands this), but `id` and `description` are nullable — model can return `null` for either. `_to_candidate()` treats `null` same as absent: `id` defaults to `gen_N`, `description` defaults to empty string.
 
 **Response parsing when schema mode active:**
 
