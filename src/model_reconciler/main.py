@@ -32,11 +32,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     registry: dict[str, tuple[ProfileConfig, TTLCache]] = {}
     http_client: httpx.AsyncClient | None = None
+    semaphore: asyncio.Semaphore | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal http_client
+        nonlocal http_client, semaphore
         http_client = httpx.AsyncClient(timeout=60.0)
+        semaphore = asyncio.Semaphore(settings.llm_concurrency)
 
         profiles_dir = Path(settings.profiles_dir)
         if profiles_dir.exists():
@@ -153,7 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             coros = [
                 reconcile_query(
                     q, profile, base_url, settings.llm_api_key,
-                    client=http_client,
+                    client=http_client, semaphore=semaphore,
                 )
                 for q, _ in uncached.values()
             ]
@@ -181,7 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         candidates = await reconcile_query(
             q, profile, base_url, settings.llm_api_key,
-            client=http_client,
+            client=http_client, semaphore=semaphore,
         )
         cache[cache_key] = candidates
         return [c.model_dump() for c in candidates]

@@ -1,5 +1,6 @@
 """Reconciliation logic — stateless functions, no framework coupling."""
 
+import asyncio
 import json
 import logging
 
@@ -21,6 +22,7 @@ async def reconcile_query(
     base_url: str,
     api_key: str | None = None,
     client: httpx.AsyncClient | None = None,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> list[ReconciliationCandidate]:
     """Build prompt, call LLM, parse JSON, return candidates."""
     if profile.use_dspy:
@@ -35,14 +37,25 @@ async def reconcile_query(
     ]
 
     try:
-        raw = await chat_completion(
-            client=client,
-            base_url=base_url,
-            messages=messages,
-            temperature=profile.temperature,
-            max_tokens=profile.max_tokens,
-            api_key=api_key,
-        )
+        if semaphore:
+            async with semaphore:
+                raw = await chat_completion(
+                    client=client,
+                    base_url=base_url,
+                    messages=messages,
+                    temperature=profile.temperature,
+                    max_tokens=profile.max_tokens,
+                    api_key=api_key,
+                )
+        else:
+            raw = await chat_completion(
+                client=client,
+                base_url=base_url,
+                messages=messages,
+                temperature=profile.temperature,
+                max_tokens=profile.max_tokens,
+                api_key=api_key,
+            )
     except Exception:
         logger.exception(f"LLM call failed for profile '{profile.slug}'")
         return []
